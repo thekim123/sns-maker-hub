@@ -213,6 +213,24 @@ class HubStore:
             )
             conn.commit()
 
+    def get_job(self, job_id: str) -> Optional[dict]:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT job_id, user_id, status, payload, result, created_at, updated_at FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "job_id": row[0],
+            "user_id": row[1],
+            "status": row[2],
+            "payload": row[3],
+            "result": row[4],
+            "created_at": float(row[5]),
+            "updated_at": float(row[6]),
+        }
+
     def create_post(self, post_id: str, user_id: str, title: str, content: str) -> None:
         now = time.time()
         with sqlite3.connect(self._path) as conn:

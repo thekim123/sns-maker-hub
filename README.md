@@ -26,6 +26,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - POST /register
 - POST /jobs
 - GET /jobs/next
+- GET /jobs/{job_id}
 - POST /jobs/{job_id}/result
 - POST /posts
 - GET /posts/latest?user_id=...
@@ -33,3 +34,70 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - GET /naver/link?user_id=...
 - GET /naver/callback?code=...&state=...
 - POST /naver/publish
+
+## 요청/응답 예시
+
+### 1) 작업 등록
+Request:
+```json
+POST /jobs
+{
+  "user_id": "123456",
+  "payload": {
+    "task": "generate",
+    "style": "insta",
+    "caption": "설명",
+    "images_b64": ["<base64>"]
+  }
+}
+```
+Response:
+```json
+{ "ok": true, "job_id": "abc123" }
+```
+
+### 2) 워커가 작업 가져가기
+Request:
+```
+GET /jobs/next
+```
+Response:
+```json
+{
+  "ok": true,
+  "job": {
+    "job_id": "abc123",
+    "user_id": "123456",
+    "payload": { "task": "generate", "style": "insta", "images_b64": ["<base64>"] }
+  }
+}
+```
+
+### 3) 작업 완료 업로드
+Request:
+```json
+POST /jobs/abc123/result
+{ "result": "생성된 글 ..." }
+```
+Response:
+```json
+{ "ok": true }
+```
+
+### 4) 상태 조회
+Request:
+```
+GET /jobs/abc123
+```
+Response:
+```json
+{
+  "ok": true,
+  "job": {
+    "job_id": "abc123",
+    "status": "done",
+    "result": "생성된 글 ...",
+    "updated_at": 1717000000.0
+  }
+}
+```

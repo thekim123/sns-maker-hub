@@ -86,6 +86,14 @@ async def next_job(x_api_key: Optional[str] = Header(None)):
     payload = json.loads(job["payload"])
     return {"ok": True, "job": {"job_id": job["job_id"], "user_id": job["user_id"], "payload": payload}}
 
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str, x_api_key: Optional[str] = Header(None)):
+    _require_key(x_api_key)
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="not_found")
+    return {"ok": True, "job": job}
+
 
 @app.post("/jobs/{job_id}/result")
 async def complete_job(job_id: str, request: JobResultRequest, x_api_key: Optional[str] = Header(None)):
