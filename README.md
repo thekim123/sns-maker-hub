@@ -16,6 +16,30 @@ copy .env.example .env
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
+## Web dashboard (React)
+
+The dashboard lives in `frontend/` and expects the API at `/api`.
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+To build static files for Nginx:
+
+```powershell
+cd frontend
+npm run build
+```
+
+Copy `frontend/dist` to `/var/www/sns-maker-hub` (or your chosen web root).
+
+## Nginx (single EC2: web + API)
+
+An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React app and proxies
+`/api`, `/health`, and `/naver` to FastAPI on port 8000.
+
 ## 환경변수
 - DATABASE_URL (기본: sqlite:///./hub.db)
 - PUBLIC_BASE_URL (OAuth 콜백 URL)
@@ -34,6 +58,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - GET /naver/link?user_id=...
 - GET /naver/callback?code=...&state=...
 - POST /naver/publish
+- GET /api/status
 
 ## 요청/응답 예시
 

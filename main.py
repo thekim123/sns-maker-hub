@@ -1,4 +1,5 @@
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 import json
 import secrets
 from typing import Optional
@@ -13,6 +14,7 @@ from naver_client import NaverClient
 app = FastAPI(title="SNS Maker Hub")
 store = HubStore()
 naver_client = NaverClient()
+server_start = time.time()
 
 
 class JobRequest(BaseModel):
@@ -57,6 +59,44 @@ def _require_key(api_key: Optional[str]) -> None:
 async def health():
     return {"ok": True, "time": datetime.utcnow().isoformat()}
 
+
+def _format_ts(value: float) -> str:
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+
+
+@app.get("/api/status")
+async def status():
+    now = time.time()
+    return {
+        "ok": True,
+        "server_time": _format_ts(now),
+        "uptime_seconds": int(now - server_start),
+        "users": {"registered": store.count_users()},
+        "jobs": {
+            "queued": store.count_jobs_by_status("queued"),
+            "processing": store.count_jobs_by_status("processing"),
+            "done": store.count_jobs_by_status("done"),
+            "recent": [
+                {
+                    "job_id": row["job_id"],
+                    "user_id": row["user_id"],
+                    "status": row["status"],
+                    "updated_at": _format_ts(row["updated_at"]),
+                }
+                for row in store.list_recent_jobs(limit=5)
+            ],
+        },
+        "naver": {"linked_accounts": store.count_naver_accounts()},
+        "latest_posts": [
+            {
+                "post_id": row["post_id"],
+                "user_id": row["user_id"],
+                "title": row["title"],
+                "created_at": _format_ts(row["created_at"]),
+            }
+            for row in store.list_latest_posts(limit=5)
+        ],
+    }
 
 @app.post("/register")
 async def register(request: RegisterRequest, x_api_key: Optional[str] = Header(None)):

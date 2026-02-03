@@ -92,6 +92,11 @@ class HubStore:
             ).fetchone()
         return row is not None
 
+    def count_users(self) -> int:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM hub_users").fetchone()
+        return int(row[0]) if row else 0
+
     def save_oauth_state(self, state: str, user_id: str) -> None:
         now = time.time()
         with sqlite3.connect(self._path) as conn:
@@ -174,6 +179,11 @@ class HubStore:
             "token_expires_at": float(row[5]),
         }
 
+    def count_naver_accounts(self) -> int:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM naver_accounts").fetchone()
+        return int(row[0]) if row else 0
+
     def create_job(self, job_id: str, user_id: str, payload: str) -> None:
         now = time.time()
         with sqlite3.connect(self._path) as conn:
@@ -231,6 +241,32 @@ class HubStore:
             "updated_at": float(row[6]),
         }
 
+    def count_jobs_by_status(self, status: str) -> int:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = ?", (status,)).fetchone()
+        return int(row[0]) if row else 0
+
+    def list_recent_jobs(self, limit: int = 5) -> list[dict]:
+        with sqlite3.connect(self._path) as conn:
+            rows = conn.execute(
+                """
+                SELECT job_id, user_id, status, updated_at
+                FROM jobs
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "job_id": str(row[0]),
+                "user_id": str(row[1]),
+                "status": str(row[2]),
+                "updated_at": float(row[3]),
+            }
+            for row in rows
+        ]
+
     def create_post(self, post_id: str, user_id: str, title: str, content: str) -> None:
         now = time.time()
         with sqlite3.connect(self._path) as conn:
@@ -259,3 +295,24 @@ class HubStore:
             "content": row[2],
             "created_at": float(row[3]),
         }
+
+    def list_latest_posts(self, limit: int = 5) -> list[dict]:
+        with sqlite3.connect(self._path) as conn:
+            rows = conn.execute(
+                """
+                SELECT post_id, user_id, title, created_at
+                FROM posts
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "post_id": str(row[0]),
+                "user_id": str(row[1]),
+                "title": str(row[2]),
+                "created_at": float(row[3]),
+            }
+            for row in rows
+        ]
