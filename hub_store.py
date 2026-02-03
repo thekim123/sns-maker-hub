@@ -38,15 +38,6 @@ class HubStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS oidc_states (
-                    state TEXT PRIMARY KEY,
-                    nonce TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS naver_accounts (
                     user_id TEXT PRIMARY KEY,
                     client_id TEXT NOT NULL,
@@ -140,27 +131,6 @@ class HubStore:
             ).fetchone()
             if row:
                 conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
-                conn.commit()
-                return str(row[0])
-        return None
-
-    def save_oidc_state(self, state: str, nonce: str) -> None:
-        now = time.time()
-        with sqlite3.connect(self._path) as conn:
-            conn.execute(
-                "INSERT INTO oidc_states (state, nonce, created_at) VALUES (?, ?, ?)",
-                (state, nonce, now),
-            )
-            conn.commit()
-
-    def pop_oidc_state(self, state: str) -> Optional[str]:
-        with sqlite3.connect(self._path) as conn:
-            row = conn.execute(
-                "SELECT nonce FROM oidc_states WHERE state = ?",
-                (state,),
-            ).fetchone()
-            if row:
-                conn.execute("DELETE FROM oidc_states WHERE state = ?", (state,))
                 conn.commit()
                 return str(row[0])
         return None
