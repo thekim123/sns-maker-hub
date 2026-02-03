@@ -26,3 +26,14 @@ NAVER_TOKEN_URL = "https://nid.naver.com/oauth2.0/token"
 NAVER_BLOG_WRITE_URL = "https://openapi.naver.com/blog/writePost.json"
 
 ALLOW_NEW_USERS = _get_env_bool("ALLOW_NEW_USERS", False)
+
+NAVER_CLIENT_ID = _get_env("NAVER_CLIENT_ID", "")
+NAVER_CLIENT_SECRET = _get_env("NAVER_CLIENT_SECRET", "")
+NAVER_REDIRECT_URI = _get_env("NAVER_REDIRECT_URI", "")
+
+OIDC_ISSUER = _get_env("OIDC_ISSUER", "")
+OIDC_CLIENT_ID = _get_env("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = _get_env("OIDC_CLIENT_SECRET", "")
+OIDC_AUDIENCE = _get_env("OIDC_AUDIENCE", "")
+OIDC_REDIRECT_URI = _get_env("OIDC_REDIRECT_URI", "")
+OIDC_POST_LOGOUT_REDIRECT_URI = _get_env("OIDC_POST_LOGOUT_REDIRECT_URI", "")

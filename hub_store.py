@@ -37,6 +37,15 @@ class HubStore:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS oidc_states (
+                    state TEXT PRIMARY KEY,
+                    nonce TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS naver_accounts (
                     user_id TEXT PRIMARY KEY,
                     client_id TEXT NOT NULL,
@@ -114,6 +123,27 @@ class HubStore:
             ).fetchone()
             if row:
                 conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+                conn.commit()
+                return str(row[0])
+        return None
+
+    def save_oidc_state(self, state: str, nonce: str) -> None:
+        now = time.time()
+        with sqlite3.connect(self._path) as conn:
+            conn.execute(
+                "INSERT INTO oidc_states (state, nonce, created_at) VALUES (?, ?, ?)",
+                (state, nonce, now),
+            )
+            conn.commit()
+
+    def pop_oidc_state(self, state: str) -> Optional[str]:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT nonce FROM oidc_states WHERE state = ?",
+                (state,),
+            ).fetchone()
+            if row:
+                conn.execute("DELETE FROM oidc_states WHERE state = ?", (state,))
                 conn.commit()
                 return str(row[0])
         return None
@@ -294,6 +324,25 @@ class HubStore:
             "title": row[1],
             "content": row[2],
             "created_at": float(row[3]),
+        }
+
+    def get_post(self, post_id: str) -> Optional[dict]:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                """
+                SELECT post_id, user_id, title, content, created_at FROM posts
+                WHERE post_id = ?
+                """,
+                (post_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "post_id": row[0],
+            "user_id": row[1],
+            "title": row[2],
+            "content": row[3],
+            "created_at": float(row[4]),
         }
 
     def list_latest_posts(self, limit: int = 5) -> list[dict]:
