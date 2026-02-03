@@ -1,4 +1,5 @@
 import time
+import urllib.parse
 from datetime import datetime, timezone
 import json
 import secrets
@@ -390,27 +391,14 @@ async def naver_callback(code: str = "", state: str = ""):
     }
     access_token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
     if FRONTEND_BASE_URL:
-        html = f"""
-<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>로그인 완료</title>
-  </head>
-  <body>
-    <script>
-      try {{
-        localStorage.setItem("hub_access_token", {json.dumps(access_token)});
-        localStorage.setItem("hub_token_expires_at", String(Date.now() + {int(JWT_TTL_SECONDS)} * 1000));
-      }} catch (e) {{}}
-      window.location.replace({json.dumps(FRONTEND_BASE_URL)});
-    </script>
-    <p>로그인 완료. 이동 중...</p>
-  </body>
-</html>
-"""
-        return HTMLResponse(html)
+        fragment = urllib.parse.urlencode(
+            {
+                "access_token": access_token,
+                "expires_in": str(int(JWT_TTL_SECONDS)),
+            }
+        )
+        redirect_url = f"{FRONTEND_BASE_URL.rstrip('/')}/#{fragment}"
+        return RedirectResponse(redirect_url)
     return {"ok": True, "access_token": access_token, "expires_in": JWT_TTL_SECONDS}
 
 
