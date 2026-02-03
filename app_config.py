@@ -24,6 +24,7 @@ PUBLIC_BASE_URL = _get_env("PUBLIC_BASE_URL", "http://localhost:8000")
 NAVER_AUTHORIZE_URL = "https://nid.naver.com/oauth2.0/authorize"
 NAVER_TOKEN_URL = "https://nid.naver.com/oauth2.0/token"
 NAVER_BLOG_WRITE_URL = "https://openapi.naver.com/blog/writePost.json"
+NAVER_PROFILE_URL = "https://openapi.naver.com/v1/nid/me"
 
 ALLOW_NEW_USERS = _get_env_bool("ALLOW_NEW_USERS", False)
 

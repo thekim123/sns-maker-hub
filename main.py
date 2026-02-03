@@ -159,36 +159,20 @@ async def auth_logout():
 
 
 @app.get("/auth/naver/login")
-async def auth_naver_login(user_id: str):
-    if not store.is_user(user_id):
-        raise HTTPException(status_code=403, detail="not_registered")
+async def auth_naver_login():
     state = secrets.token_urlsafe(16)
-    store.save_oauth_state(state, user_id)
-    account = store.get_naver_account(user_id)
-    if not account:
-        client_id = (NAVER_CLIENT_ID or "").strip()
-        client_secret = (NAVER_CLIENT_SECRET or "").strip()
-        if not client_id or not client_secret:
-            raise HTTPException(status_code=400, detail="missing_client_info")
-        if NAVER_REDIRECT_URI:
-            redirect_uri = NAVER_REDIRECT_URI
-        else:
-            redirect_uri = f"{PUBLIC_BASE_URL.rstrip('/')}/naver/callback"
-        store.upsert_naver_account(
-            user_id=user_id,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            access_token="",
-            refresh_token="",
-            token_expires_at=0.0,
-        )
-        account = store.get_naver_account(user_id)
-        if not account:
-            raise HTTPException(status_code=400, detail="missing_client_info")
+    store.save_oauth_state(state, "", "login")
+    client_id = (NAVER_CLIENT_ID or "").strip()
+    client_secret = (NAVER_CLIENT_SECRET or "").strip()
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="missing_client_info")
+    if NAVER_REDIRECT_URI:
+        redirect_uri = NAVER_REDIRECT_URI
+    else:
+        redirect_uri = f"{PUBLIC_BASE_URL.rstrip('/')}/naver/callback"
     url = naver_client.build_authorize_url(
-        client_id=account["client_id"],
-        redirect_uri=account["redirect_uri"],
+        client_id=client_id,
+        redirect_uri=redirect_uri,
         state=state,
     )
     return RedirectResponse(url)
@@ -336,7 +320,7 @@ async def naver_link(
     if not account:
         raise HTTPException(status_code=400, detail="missing_client_info")
     state = secrets.token_urlsafe(16)
-    store.save_oauth_state(state, user_id)
+    store.save_oauth_state(state, user_id, "link")
     url = naver_client.build_authorize_url(
         client_id=account["client_id"],
         redirect_uri=account["redirect_uri"],
@@ -349,24 +333,49 @@ async def naver_link(
 async def naver_callback(code: str = "", state: str = ""):
     if not code or not state:
         raise HTTPException(status_code=400, detail="missing_code_or_state")
-    user_id = store.pop_oauth_state(state)
-    if not user_id:
+    state_info = store.pop_oauth_state(state)
+    if not state_info:
         raise HTTPException(status_code=400, detail="invalid_state")
-    account = store.get_naver_account(user_id)
+    flow = state_info.get("flow", "")
+    user_id = state_info.get("user_id", "")
+    account = store.get_naver_account(user_id) if user_id else None
     if not account:
-        raise HTTPException(status_code=400, detail="missing_client_info")
+        client_id = (NAVER_CLIENT_ID or "").strip()
+        client_secret = (NAVER_CLIENT_SECRET or "").strip()
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=400, detail="missing_client_info")
+        redirect_uri = NAVER_REDIRECT_URI or f"{PUBLIC_BASE_URL.rstrip('/')}/naver/callback"
+    else:
+        client_id = account["client_id"]
+        client_secret = account["client_secret"]
+        redirect_uri = account["redirect_uri"]
     token = await naver_client.exchange_code(
-        client_id=account["client_id"],
-        client_secret=account["client_secret"],
-        redirect_uri=account["redirect_uri"],
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
         code=code,
         state=state,
     )
+    if flow == "login":
+        profile = await naver_client.get_profile(token.access_token)
+        naver_id = ""
+        if isinstance(profile, dict):
+            response = profile.get("response") if isinstance(profile.get("response"), dict) else {}
+            naver_id = str(response.get("id", "")).strip()
+        if not naver_id:
+            raise HTTPException(status_code=400, detail="missing_naver_id")
+        mapped_user_id = store.get_user_by_naver_id(naver_id)
+        user_id = mapped_user_id or f"naver:{naver_id}"
+        if not store.is_user(user_id):
+            if not ALLOW_NEW_USERS:
+                raise HTTPException(status_code=403, detail="registration_closed")
+            store.add_user(user_id)
+        store.link_naver_identity(naver_id, user_id)
     store.upsert_naver_account(
         user_id=user_id,
-        client_id=account["client_id"],
-        client_secret=account["client_secret"],
-        redirect_uri=account["redirect_uri"],
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
         access_token=token.access_token,
         refresh_token=token.refresh_token,
         token_expires_at=token.expires_at(),

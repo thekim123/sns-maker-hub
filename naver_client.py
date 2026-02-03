@@ -5,7 +5,12 @@ from typing import Optional
 
 import httpx
 
-from app_config import NAVER_AUTHORIZE_URL, NAVER_BLOG_WRITE_URL, NAVER_TOKEN_URL
+from app_config import (
+    NAVER_AUTHORIZE_URL,
+    NAVER_BLOG_WRITE_URL,
+    NAVER_PROFILE_URL,
+    NAVER_TOKEN_URL,
+)
 
 
 @dataclass
@@ -96,5 +101,14 @@ class NaverClient:
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(NAVER_BLOG_WRITE_URL, data=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_profile(self, access_token: str) -> dict:
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.get(NAVER_PROFILE_URL, headers=headers)
         response.raise_for_status()
         return response.json()

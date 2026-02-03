@@ -27,7 +27,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `HUB_API_KEY`가 설정되어 있으면 모든 API 요청에 `X-API-KEY` 필요
 
 ## 네이버 로그인
-- `GET /auth/naver/login?user_id=...`으로 네이버 OAuth 로그인 시작
+- `GET /auth/naver/login`으로 네이버 OAuth 로그인 시작
 - `GET /naver/callback`에서 토큰을 저장하고 JWT를 발급
 - 프론트는 `hub_access_token`을 저장하고 `Authorization: Bearer <token>`로 요청
 - `GET /auth/status`로 로그인 여부 확인

@@ -32,7 +32,8 @@ class HubStore:
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
-                    created_at REAL NOT NULL
+                    created_at REAL NOT NULL,
+                    flow TEXT NOT NULL
                 )
                 """
             )
@@ -47,6 +48,15 @@ class HubStore:
                     refresh_token TEXT NOT NULL,
                     token_expires_at REAL NOT NULL,
                     updated_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS naver_identities (
+                    naver_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at REAL NOT NULL
                 )
                 """
             )
@@ -75,6 +85,7 @@ class HubStore:
                 """
             )
             conn.commit()
+            self._ensure_column(conn, "oauth_states", "flow", "TEXT")
             self._ensure_column(conn, "hub_users", "telegram_id", "TEXT")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
@@ -101,6 +112,31 @@ class HubStore:
             )
             conn.commit()
 
+    def link_naver_identity(self, naver_id: str, user_id: str) -> None:
+        now = time.time()
+        with sqlite3.connect(self._path) as conn:
+            conn.execute(
+                """
+                INSERT INTO naver_identities (naver_id, user_id, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(naver_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    created_at = excluded.created_at
+                """,
+                (naver_id, user_id, now),
+            )
+            conn.commit()
+
+    def get_user_by_naver_id(self, naver_id: str) -> Optional[str]:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT user_id FROM naver_identities WHERE naver_id = ?",
+                (naver_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return str(row[0])
+
     def is_user(self, user_id: str) -> bool:
         with sqlite3.connect(self._path) as conn:
             row = conn.execute(
@@ -114,25 +150,25 @@ class HubStore:
             row = conn.execute("SELECT COUNT(*) FROM hub_users").fetchone()
         return int(row[0]) if row else 0
 
-    def save_oauth_state(self, state: str, user_id: str) -> None:
+    def save_oauth_state(self, state: str, user_id: str, flow: str) -> None:
         now = time.time()
         with sqlite3.connect(self._path) as conn:
             conn.execute(
-                "INSERT INTO oauth_states (state, user_id, created_at) VALUES (?, ?, ?)",
-                (state, user_id, now),
+                "INSERT INTO oauth_states (state, user_id, created_at, flow) VALUES (?, ?, ?, ?)",
+                (state, user_id, now, flow),
             )
             conn.commit()
 
-    def pop_oauth_state(self, state: str) -> Optional[str]:
+    def pop_oauth_state(self, state: str) -> Optional[dict]:
         with sqlite3.connect(self._path) as conn:
             row = conn.execute(
-                "SELECT user_id FROM oauth_states WHERE state = ?",
+                "SELECT user_id, flow FROM oauth_states WHERE state = ?",
                 (state,),
             ).fetchone()
             if row:
                 conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
                 conn.commit()
-                return str(row[0])
+                return {"user_id": str(row[0]), "flow": str(row[1] or "")}
         return None
 
 
