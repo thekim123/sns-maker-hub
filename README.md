@@ -18,42 +18,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## Web dashboard (React)
 
-The dashboard lives in `frontend/` and expects the API at `/api`.
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` for the UI (API should be running on port 8000).
-
-### Build & serve with Nginx
-1) Build the static assets:
-```powershell
-cd frontend
-npm run build
-```
-
-2) Copy the build output to your web root (example):
-```powershell
-mkdir C:\var\www\sns-maker-hub
-Copy-Item -Recurse -Force frontend\dist\* C:\var\www\sns-maker-hub\
-```
-
-3) Apply the Nginx config and reload:
-```
-# see deploy/nginx/sns-maker.conf
-```
-
-To build static files for Nginx:
-
-```powershell
-cd frontend
-npm run build
-```
-
-Copy `frontend/dist` to `/var/www/sns-maker-hub` (or your chosen web root).
+The dashboard is split into a separate project. See `D:\workspace\sns-maker-hub-frontend`.
 
 ## Nginx (single EC2: web + API)
 
