@@ -19,9 +19,18 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `PUBLIC_BASE_URL`: OAuth 콜백 기준 URL
 - `HUB_API_KEY`: 비어있으면 인증 없음
 - `ALLOW_NEW_USERS`: `true`일 때 신규 등록 허용
+- `FRONTEND_BASE_URL`: 네이버 로그인 완료 후 리다이렉트할 프론트 URL
+- `JWT_SECRET`: 로그인 JWT 서명 키
+- `JWT_TTL_SECONDS`: 로그인 JWT 만료 시간 (초)
 
 ## 인증
 - `HUB_API_KEY`가 설정되어 있으면 모든 API 요청에 `X-API-KEY` 필요
+
+## 네이버 로그인
+- `GET /auth/naver/login?user_id=...`으로 네이버 OAuth 로그인 시작
+- `GET /naver/callback`에서 토큰을 저장하고 JWT를 발급
+- 프론트는 `hub_access_token`을 저장하고 `Authorization: Bearer <token>`로 요청
+- `GET /auth/status`로 로그인 여부 확인
 
 ## 데이터 모델 (SQLite)
 - `hub_users`: 허브 등록 사용자

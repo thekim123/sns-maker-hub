@@ -5,6 +5,8 @@ import secrets
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+import jwt
 from pydantic import BaseModel
 from app_config import (
     ALLOW_NEW_USERS,
@@ -13,6 +15,9 @@ from app_config import (
     NAVER_CLIENT_SECRET,
     NAVER_REDIRECT_URI,
     PUBLIC_BASE_URL,
+    FRONTEND_BASE_URL,
+    JWT_SECRET,
+    JWT_TTL_SECONDS,
 )
 from hub_store import HubStore
 from naver_client import NaverClient
@@ -63,6 +68,38 @@ def _require_key(api_key: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
+def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    if not authorization.lower().startswith("bearer "):
+        return None
+    return authorization.split(" ", 1)[1].strip()
+
+
+def _verify_token(authorization: Optional[str]) -> Optional[str]:
+    token = _extract_bearer(authorization)
+    if not token:
+        return None
+    if not JWT_SECRET:
+        raise HTTPException(status_code=500, detail="jwt_not_configured")
+    try:
+        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="unauthorized") from None
+    return str(claims.get("sub", ""))
+
+
+def _require_dashboard_auth(request: Request, api_key: Optional[str]) -> str:
+    if HUB_API_KEY and api_key == HUB_API_KEY:
+        return "api_key"
+    user_id = _verify_token(request.headers.get("Authorization"))
+    if user_id:
+        return user_id
+    if HUB_API_KEY:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    raise HTTPException(status_code=401, detail="login_required")
+
+
 @app.get("/health")
 async def health():
     return {"ok": True, "time": datetime.utcnow().isoformat()}
@@ -73,7 +110,8 @@ def _format_ts(value: float) -> str:
 
 
 @app.get("/api/status")
-async def status():
+async def status(request: Request, x_api_key: Optional[str] = Header(None)):
+    _require_dashboard_auth(request, x_api_key)
     now = time.time()
     return {
         "ok": True,
@@ -105,6 +143,55 @@ async def status():
             for row in store.list_latest_posts(limit=5)
         ],
     }
+
+
+@app.get("/auth/status")
+async def auth_status(request: Request):
+    user_id = _verify_token(request.headers.get("Authorization"))
+    if not user_id:
+        return {"ok": False}
+    return {"ok": True, "user_id": user_id}
+
+
+@app.post("/auth/logout")
+async def auth_logout():
+    return {"ok": True}
+
+
+@app.get("/auth/naver/login")
+async def auth_naver_login(user_id: str):
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    state = secrets.token_urlsafe(16)
+    store.save_oauth_state(state, user_id)
+    account = store.get_naver_account(user_id)
+    if not account:
+        client_id = (NAVER_CLIENT_ID or "").strip()
+        client_secret = (NAVER_CLIENT_SECRET or "").strip()
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=400, detail="missing_client_info")
+        if NAVER_REDIRECT_URI:
+            redirect_uri = NAVER_REDIRECT_URI
+        else:
+            redirect_uri = f"{PUBLIC_BASE_URL.rstrip('/')}/naver/callback"
+        store.upsert_naver_account(
+            user_id=user_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            access_token="",
+            refresh_token="",
+            token_expires_at=0.0,
+        )
+        account = store.get_naver_account(user_id)
+        if not account:
+            raise HTTPException(status_code=400, detail="missing_client_info")
+    url = naver_client.build_authorize_url(
+        client_id=account["client_id"],
+        redirect_uri=account["redirect_uri"],
+        state=state,
+    )
+    return RedirectResponse(url)
 
 
 
@@ -172,9 +259,10 @@ async def complete_job(
 @app.post("/posts")
 async def save_post(
     request: PostRecord,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     store.create_post(secrets.token_urlsafe(12), request.user_id, request.title, request.content)
     return {"ok": True}
 
@@ -182,9 +270,10 @@ async def save_post(
 @app.get("/posts/latest")
 async def latest_post(
     user_id: str,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     post = store.get_latest_post(user_id)
     if not post:
         return {"ok": True, "post": None}
@@ -193,9 +282,10 @@ async def latest_post(
 @app.get("/posts/{post_id}")
 async def get_post(
     post_id: str,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     post = store.get_post(post_id)
     if not post:
         raise HTTPException(status_code=404, detail="not_found")
@@ -205,9 +295,10 @@ async def get_post(
 @app.post("/naver/set")
 async def naver_set(
     request: NaverSetRequest,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     if not store.is_user(request.user_id):
         raise HTTPException(status_code=403, detail="not_registered")
     client_id = (request.client_id or NAVER_CLIENT_ID or "").strip()
@@ -235,9 +326,10 @@ async def naver_set(
 @app.get("/naver/link")
 async def naver_link(
     user_id: str,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     if not store.is_user(user_id):
         raise HTTPException(status_code=403, detail="not_registered")
     account = store.get_naver_account(user_id)
@@ -279,15 +371,47 @@ async def naver_callback(code: str = "", state: str = ""):
         refresh_token=token.refresh_token,
         token_expires_at=token.expires_at(),
     )
-    return {"ok": True}
+    if not JWT_SECRET:
+        raise HTTPException(status_code=500, detail="jwt_not_configured")
+    now = int(time.time())
+    payload = {
+        "sub": user_id,
+        "iat": now,
+        "exp": now + JWT_TTL_SECONDS,
+    }
+    access_token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    if FRONTEND_BASE_URL:
+        html = f"""
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>로그인 완료</title>
+  </head>
+  <body>
+    <script>
+      try {{
+        localStorage.setItem("hub_access_token", {json.dumps(access_token)});
+        localStorage.setItem("hub_token_expires_at", String(Date.now() + {int(JWT_TTL_SECONDS)} * 1000));
+      }} catch (e) {{}}
+      window.location.replace({json.dumps(FRONTEND_BASE_URL)});
+    </script>
+    <p>로그인 완료. 이동 중...</p>
+  </body>
+</html>
+"""
+        return HTMLResponse(html)
+    return {"ok": True, "access_token": access_token, "expires_in": JWT_TTL_SECONDS}
 
 
 @app.post("/naver/publish")
 async def naver_publish(
     request: PublishRequest,
+    request_obj: Request,
     x_api_key: Optional[str] = Header(None),
 ):
-    _require_key(x_api_key)
+    _require_dashboard_auth(request_obj, x_api_key)
     account = store.get_naver_account(request.user_id)
     if not account or not account.get("access_token"):
         raise HTTPException(status_code=400, detail="naver_not_linked")

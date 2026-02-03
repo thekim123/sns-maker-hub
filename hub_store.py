@@ -135,6 +135,7 @@ class HubStore:
                 return str(row[0])
         return None
 
+
     def upsert_naver_account(
         self,
         user_id: str,
