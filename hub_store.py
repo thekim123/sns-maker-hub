@@ -22,7 +22,8 @@ class HubStore:
                 """
                 CREATE TABLE IF NOT EXISTS hub_users (
                     user_id TEXT PRIMARY KEY,
-                    created_at REAL NOT NULL
+                    created_at REAL NOT NULL,
+                    telegram_id TEXT
                 )
                 """
             )
@@ -83,6 +84,14 @@ class HubStore:
                 """
             )
             conn.commit()
+            self._ensure_column(conn, "hub_users", "telegram_id", "TEXT")
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        columns = {row[1] for row in rows}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+            conn.commit()
 
     def add_user(self, user_id: str) -> None:
         now = time.time()
@@ -90,6 +99,14 @@ class HubStore:
             conn.execute(
                 "INSERT OR IGNORE INTO hub_users (user_id, created_at) VALUES (?, ?)",
                 (user_id, now),
+            )
+            conn.commit()
+
+    def set_telegram_id(self, user_id: str, telegram_id: str) -> None:
+        with sqlite3.connect(self._path) as conn:
+            conn.execute(
+                "UPDATE hub_users SET telegram_id = ? WHERE user_id = ?",
+                (telegram_id, user_id),
             )
             conn.commit()
 

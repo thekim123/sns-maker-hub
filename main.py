@@ -5,7 +5,7 @@ import secrets
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import jwt
 
@@ -22,6 +22,7 @@ from app_config import (
     OIDC_POST_LOGOUT_REDIRECT_URI,
     OIDC_REDIRECT_URI,
     PUBLIC_BASE_URL,
+    FRONTEND_BASE_URL,
 )
 from hub_store import HubStore
 from naver_client import NaverClient
@@ -70,6 +71,7 @@ class PublishRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     user_id: str
+    telegram_id: Optional[str] = None
 
 
 class PostRecord(BaseModel):
@@ -171,12 +173,39 @@ async def auth_callback(code: str = "", state: str = ""):
     if not id_token:
         raise HTTPException(status_code=400, detail="missing_id_token")
     oidc_client.verify_jwt(id_token, nonce=nonce)
+    access_token = tokens.get("access_token", "")
+    token_type = tokens.get("token_type", "Bearer")
+    expires_in = tokens.get("expires_in", 0)
+    if FRONTEND_BASE_URL:
+        html = f"""
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>로그인 완료</title>
+  </head>
+  <body>
+    <script>
+      try {{
+        localStorage.setItem("hub_access_token", {json.dumps(access_token)});
+        localStorage.setItem("hub_id_token", {json.dumps(id_token)});
+        localStorage.setItem("hub_token_type", {json.dumps(token_type)});
+        localStorage.setItem("hub_token_expires_at", String(Date.now() + {int(expires_in)} * 1000));
+      }} catch (e) {{}}
+      window.location.replace({json.dumps(FRONTEND_BASE_URL)});
+    </script>
+    <p>로그인 완료. 이동 중...</p>
+  </body>
+</html>
+"""
+        return HTMLResponse(html)
     return {
         "ok": True,
-        "access_token": tokens.get("access_token", ""),
+        "access_token": access_token,
         "id_token": id_token,
-        "token_type": tokens.get("token_type", "Bearer"),
-        "expires_in": tokens.get("expires_in", 0),
+        "token_type": token_type,
+        "expires_in": expires_in,
     }
 
 @app.post("/register")
@@ -189,6 +218,8 @@ async def register(
     if not ALLOW_NEW_USERS and not store.is_user(request.user_id):
         raise HTTPException(status_code=403, detail="registration_closed")
     store.add_user(request.user_id)
+    if request.telegram_id:
+        store.set_telegram_id(request.user_id, request.telegram_id)
     return {"ok": True}
 
 

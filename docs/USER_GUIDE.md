@@ -20,7 +20,7 @@
 curl -X POST http://localhost:8000/register \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: <키가 있으면 입력>" \
-  -d '{"user_id":"my-user"}'
+  -d '{"user_id":"my-user","telegram_id":"my-telegram"}'
 ```
 
 ## 네이버 블로그 연동

@@ -25,6 +25,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `OIDC_AUDIENCE`: Access Token audience (Auth0 API Identifier)
 - `OIDC_REDIRECT_URI`: OIDC 콜백 URL
 - `OIDC_POST_LOGOUT_REDIRECT_URI`: 로그아웃 후 리다이렉트
+- `FRONTEND_BASE_URL`: 로그인 완료 후 이동할 프론트 URL
 
 ## 인증
 - `HUB_API_KEY`가 설정되어 있으면 모든 API 요청에 `X-API-KEY` 필요
@@ -33,6 +34,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ## OIDC 로그인
 - `GET /auth/login`으로 Auth0 로그인 페이지로 리다이렉트
 - `GET /auth/callback`에서 토큰을 수신하고 `access_token`을 반환
+- `FRONTEND_BASE_URL`이 있으면 브라우저에 토큰을 저장하고 프론트로 리다이렉트
 - 반환된 `access_token`을 API 요청의 `Authorization` 헤더로 사용
 
 ## 데이터 모델 (SQLite)
