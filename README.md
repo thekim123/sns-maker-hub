@@ -54,6 +54,8 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 3. 봇 서버가 `POST /telegram/verify/complete` 호출 시 서버가 `telegram_user_id`를 저장
 4. nonce TTL은 5분(300초), 5회 실패 시 챌린지는 삭제되어 재발급이 필요
 
+상세 연동 가이드는 `docs/TELEGRAM_VERIFICATION.md`를 참고하세요.
+
 ## 요청/응답 예시
 
 ### 1) 작업 등록
