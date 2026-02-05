@@ -31,6 +31,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `GET /naver/callback`에서 토큰을 저장하고 JWT를 발급
 - 프론트는 `hub_access_token`을 저장하고 `Authorization: Bearer <token>`로 요청
 - `GET /auth/status`로 로그인 여부 확인
+- `GET /profile`로 로그인 사용자 프로필 조회
+- `POST /profile/telegram/challenge` + `POST /telegram/verify/complete`로 텔레그램 실소유 검증 후 telegram_id 저장
 
 ## 데이터 모델 (SQLite)
 - `hub_users`: 허브 등록 사용자
@@ -43,6 +45,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `GET /health`: 헬스체크
 - `GET /api/status`: 대시보드 집계
 - `POST /register`: 사용자 등록
+- `GET /profile`: 로그인 사용자 프로필 조회
+- `POST /profile/telegram/challenge`: 로그인 사용자의 텔레그램 검증 nonce 발급
+- `POST /telegram/verify/complete`: 봇 서버가 nonce 검증 완료를 허브에 전달
 - `POST /jobs`: 작업 등록
 - `GET /jobs/next`: 워커가 다음 작업 가져오기
 - `GET /jobs/{job_id}`: 작업 상태 조회
@@ -53,6 +58,17 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - `GET /naver/link`: 네이버 OAuth 링크 생성
 - `GET /naver/callback`: 네이버 OAuth 콜백
 - `POST /naver/publish`: 네이버 블로그 게시
+
+### Telegram 실소유 검증
+1. 프론트: `POST /profile/telegram/challenge` (Authorization Bearer)
+2. 사용자: 텔레그램 봇으로 `/start <nonce>` 전송
+3. 봇 서버: `POST /telegram/verify/complete` (`X-API-KEY`) with `nonce`, `telegram_user_id`, `telegram_username(optional)`
+4. 허브: nonce 1회 사용 처리 후 `hub_users.telegram_id = telegram_user_id` 저장
+5. nonce는 5분 후 만료되며, 인증 실패 5회 시 챌린지를 삭제합니다.
+
+### 봇(1:1 채팅) 강제
+- BotFather에서 `/setjoingroups`를 `Disable`로 설정해 그룹 추가를 막습니다.
+- 봇 코드에서 `message.chat.type == "private"` 일 때만 인증 명령을 처리합니다.
 
 ## 작업 흐름
 1. 클라이언트가 `/jobs`로 작업 등록

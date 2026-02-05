@@ -3,9 +3,10 @@ import urllib.parse
 from datetime import datetime, timezone
 import json
 import secrets
+import re
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import jwt
 from pydantic import BaseModel
@@ -27,6 +28,8 @@ app = FastAPI(title="SNS Maker Hub")
 store = HubStore()
 naver_client = NaverClient()
 server_start = time.time()
+TELEGRAM_VERIFY_TTL_SECONDS = 300
+TELEGRAM_VERIFY_MAX_ATTEMPTS = 5
 
 
 class JobRequest(BaseModel):
@@ -54,6 +57,20 @@ class PublishRequest(BaseModel):
 class RegisterRequest(BaseModel):
     user_id: str
     telegram_id: Optional[str] = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    telegram_id: str
+
+
+class TelegramChallengeRequest(BaseModel):
+    bot_username: Optional[str] = None
+
+
+class TelegramVerifyCompleteRequest(BaseModel):
+    nonce: str
+    telegram_user_id: str
+    telegram_username: Optional[str] = None
 
 
 class PostRecord(BaseModel):
@@ -88,6 +105,29 @@ def _verify_token(authorization: Optional[str]) -> Optional[str]:
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="unauthorized") from None
     return str(claims.get("sub", ""))
+
+
+_TELEGRAM_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+_TELEGRAM_NUMERIC_RE = re.compile(r"^[1-9][0-9]{4,19}$")
+
+
+def _normalize_telegram_id(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="invalid_telegram_id")
+    candidate = raw[1:] if raw.startswith("@") else raw
+    if _TELEGRAM_USERNAME_RE.fullmatch(candidate):
+        return f"@{candidate}"
+    if _TELEGRAM_NUMERIC_RE.fullmatch(candidate):
+        return candidate
+    raise HTTPException(status_code=400, detail="invalid_telegram_id")
+
+
+def _normalize_telegram_numeric_id(value: str) -> str:
+    candidate = (value or "").strip()
+    if not _TELEGRAM_NUMERIC_RE.fullmatch(candidate):
+        raise HTTPException(status_code=400, detail="invalid_telegram_user_id")
+    return candidate
 
 
 def _require_dashboard_auth(request: Request, api_key: Optional[str]) -> str:
@@ -159,6 +199,101 @@ async def auth_logout():
     return {"ok": True}
 
 
+@app.get("/profile")
+async def profile(request: Request):
+    user_id = _verify_token(request.headers.get("Authorization"))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="login_required")
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    user = store.get_user(user_id)
+    return {"ok": True, "profile": user}
+
+
+@app.patch("/profile")
+async def update_profile(
+    request: ProfileUpdateRequest,
+    request_obj: Request,
+):
+    user_id = _verify_token(request_obj.headers.get("Authorization"))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="login_required")
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    _normalize_telegram_id(request.telegram_id)
+    raise HTTPException(status_code=400, detail="telegram_verification_required")
+
+
+@app.post("/profile/telegram/challenge")
+async def create_telegram_challenge(
+    request_obj: Request,
+    request: Optional[TelegramChallengeRequest] = Body(default=None),
+):
+    user_id = _verify_token(request_obj.headers.get("Authorization"))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="login_required")
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    ttl = TELEGRAM_VERIFY_TTL_SECONDS
+    nonce = secrets.token_urlsafe(24)
+    expires_at = time.time() + ttl
+    store.create_telegram_verification(nonce=nonce, user_id=user_id, expires_at=expires_at)
+    bot_username = ((request.bot_username if request else "") or "").strip().lstrip("@")
+    start_command = f"/start {nonce}"
+    bot_link = f"https://t.me/{bot_username}?start={nonce}" if bot_username else ""
+    return {
+        "ok": True,
+        "nonce": nonce,
+        "expires_in": ttl,
+        "start_command": start_command,
+        "bot_link": bot_link,
+    }
+
+
+@app.post("/telegram/verify/complete")
+async def complete_telegram_verification(
+    request: TelegramVerifyCompleteRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    _require_key(x_api_key)
+    nonce = (request.nonce or "").strip()
+    if not nonce:
+        raise HTTPException(status_code=400, detail="invalid_nonce")
+    try:
+        telegram_user_id = _normalize_telegram_numeric_id(request.telegram_user_id)
+    except HTTPException:
+        failed = store.fail_telegram_verification(nonce, max_attempts=TELEGRAM_VERIFY_MAX_ATTEMPTS)
+        if failed and failed.get("status") == "max_attempts":
+            raise HTTPException(status_code=400, detail="max_attempts_reached") from None
+        raise
+    challenge = store.consume_telegram_verification(nonce, max_attempts=TELEGRAM_VERIFY_MAX_ATTEMPTS)
+    status = challenge.get("status") if challenge else "invalid"
+    if status == "expired":
+        raise HTTPException(status_code=400, detail="expired_nonce")
+    if status == "max_attempts":
+        raise HTTPException(status_code=400, detail="max_attempts_reached")
+    if status != "ok":
+        raise HTTPException(status_code=400, detail="invalid_nonce")
+    user_id = challenge["user_id"]
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    try:
+        store.set_telegram_id(user_id, telegram_user_id)
+    except ValueError as exc:
+        if str(exc) == "telegram_id_already_linked":
+            raise HTTPException(status_code=409, detail="telegram_id_already_linked") from None
+        raise
+    telegram_username = (request.telegram_username or "").strip()
+    if telegram_username:
+        telegram_username = f"@{telegram_username.lstrip('@')}"
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "telegram_id": telegram_user_id,
+        "telegram_username": telegram_username or None,
+    }
+
+
 @app.get("/auth/naver/login")
 async def auth_naver_login():
     state = secrets.token_urlsafe(16)
@@ -190,7 +325,13 @@ async def register(
         raise HTTPException(status_code=403, detail="registration_closed")
     store.add_user(request.user_id)
     if request.telegram_id:
-        store.set_telegram_id(request.user_id, request.telegram_id)
+        telegram_id = _normalize_telegram_id(request.telegram_id)
+        try:
+            store.set_telegram_id(request.user_id, telegram_id)
+        except ValueError as exc:
+            if str(exc) == "telegram_id_already_linked":
+                raise HTTPException(status_code=409, detail="telegram_id_already_linked") from None
+            raise
     return {"ok": True}
 
 

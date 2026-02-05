@@ -16,6 +16,20 @@
 
 로그인 토큰은 브라우저에 저장되며, 만료되면 다시 로그인해야 합니다.
 
+## 프로필(텔레그램 ID) 업데이트
+네이버 로그인으로 자동 가입된 사용자도 로그인 후 텔레그램 실소유 검증으로 Telegram ID를 등록/수정할 수 있습니다.
+
+```bash
+curl -X POST http://localhost:8000/profile/telegram/challenge \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <로그인 토큰>" \
+  -d '{"bot_username":"<텔레그램_봇_username>"}'
+```
+
+1. 응답으로 받은 `start_command`(예: `/start <nonce>`)를 텔레그램 봇에 전송합니다.
+2. 봇이 허브의 `POST /telegram/verify/complete`를 호출하면 프로필의 `telegram_id`가 자동 갱신됩니다.
+3. nonce는 5분 내에만 유효하며, 인증 실패 5회 시 만료 전이라도 재인증이 필요합니다.
+
 ## 사용자 등록
 1. 운영자가 등록을 열어두었는지 확인합니다. (`ALLOW_NEW_USERS`가 `true`일 때 신규 등록 가능)
 2. 아래 요청으로 계정을 등록합니다.

@@ -33,6 +33,9 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 
 ## 주요 API
 - POST /register
+- GET /profile
+- POST /profile/telegram/challenge
+- POST /telegram/verify/complete
 - POST /jobs
 - GET /jobs/next
 - GET /jobs/{job_id}
@@ -44,6 +47,12 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 - GET /naver/callback?code=...&state=...
 - POST /naver/publish
 - GET /api/status
+
+텔레그램 ID 등록은 직접 입력이 아니라 `nonce 실소유 검증`으로만 가능합니다.
+1. 로그인 사용자가 `POST /profile/telegram/challenge` 호출
+2. 응답의 `start_command`(예: `/start <nonce>`)를 텔레그램 봇에 전송
+3. 봇 서버가 `POST /telegram/verify/complete` 호출 시 서버가 `telegram_user_id`를 저장
+4. nonce TTL은 5분(300초), 5회 실패 시 챌린지는 삭제되어 재발급이 필요
 
 ## 요청/응답 예시
 

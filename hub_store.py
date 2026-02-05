@@ -84,9 +84,30 @@ class HubStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_verifications (
+                    nonce TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    used_at REAL
+                )
+                """
+            )
             conn.commit()
             self._ensure_column(conn, "oauth_states", "flow", "TEXT")
             self._ensure_column(conn, "hub_users", "telegram_id", "TEXT")
+            self._ensure_column(conn, "telegram_verifications", "attempt_count", "INTEGER NOT NULL DEFAULT 0")
+            try:
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_hub_users_telegram_id_unique ON hub_users(telegram_id) WHERE telegram_id IS NOT NULL"
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                # If legacy duplicate data exists, keep app-level uniqueness checks.
+                pass
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -106,11 +127,121 @@ class HubStore:
 
     def set_telegram_id(self, user_id: str, telegram_id: str) -> None:
         with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT user_id FROM hub_users WHERE telegram_id = ? AND user_id <> ?",
+                (telegram_id, user_id),
+            ).fetchone()
+            if row:
+                raise ValueError("telegram_id_already_linked")
             conn.execute(
                 "UPDATE hub_users SET telegram_id = ? WHERE user_id = ?",
                 (telegram_id, user_id),
             )
             conn.commit()
+
+    def create_telegram_verification(self, nonce: str, user_id: str, expires_at: float) -> None:
+        now = time.time()
+        with sqlite3.connect(self._path) as conn:
+            conn.execute("DELETE FROM telegram_verifications WHERE expires_at < ?", (now,))
+            conn.execute("DELETE FROM telegram_verifications WHERE user_id = ?", (user_id,))
+            conn.execute(
+                """
+                INSERT INTO telegram_verifications (nonce, user_id, created_at, expires_at, attempt_count, used_at)
+                VALUES (?, ?, ?, ?, 0, NULL)
+                ON CONFLICT(nonce) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    created_at = excluded.created_at,
+                    expires_at = excluded.expires_at,
+                    attempt_count = 0,
+                    used_at = NULL
+                """,
+                (nonce, user_id, now, expires_at),
+            )
+            conn.commit()
+
+    def consume_telegram_verification(self, nonce: str, max_attempts: int = 5) -> Optional[dict]:
+        now = time.time()
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                """
+                SELECT nonce, user_id, expires_at, attempt_count, used_at
+                FROM telegram_verifications
+                WHERE nonce = ?
+                """,
+                (nonce,),
+            ).fetchone()
+            if not row:
+                return {"status": "invalid"}
+            expires_at = float(row[2])
+            attempt_count = int(row[3] or 0)
+            used_at = row[4]
+            if used_at is not None:
+                conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+                conn.commit()
+                return {"status": "invalid"}
+            if expires_at < now:
+                conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+                conn.commit()
+                return {"status": "expired"}
+            if attempt_count >= max_attempts:
+                conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+                conn.commit()
+                return {"status": "max_attempts"}
+            deleted = conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+            conn.commit()
+            if deleted.rowcount != 1:
+                return {"status": "invalid"}
+        return {
+            "status": "ok",
+            "nonce": str(row[0]),
+            "user_id": str(row[1]),
+            "expires_at": float(row[2]),
+        }
+
+    def fail_telegram_verification(self, nonce: str, max_attempts: int = 5) -> Optional[dict]:
+        now = time.time()
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                """
+                SELECT attempt_count, expires_at
+                FROM telegram_verifications
+                WHERE nonce = ?
+                """,
+                (nonce,),
+            ).fetchone()
+            if not row:
+                return {"status": "invalid"}
+            attempt_count = int(row[0] or 0)
+            expires_at = float(row[1])
+            if expires_at < now:
+                conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+                conn.commit()
+                return {"status": "expired"}
+            next_attempt = attempt_count + 1
+            if next_attempt >= max_attempts:
+                conn.execute("DELETE FROM telegram_verifications WHERE nonce = ?", (nonce,))
+                conn.commit()
+                return {"status": "max_attempts", "attempt_count": next_attempt}
+            conn.execute(
+                "UPDATE telegram_verifications SET attempt_count = ? WHERE nonce = ?",
+                (next_attempt, nonce),
+            )
+            conn.commit()
+            return {"status": "failed", "attempt_count": next_attempt}
+
+    def get_user(self, user_id: str) -> Optional[dict]:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT user_id, telegram_id, created_at FROM hub_users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "user_id": str(row[0]),
+            "telegram_id": str(row[1]) if row[1] is not None else None,
+            "created_at": float(row[2]),
+        }
 
     def link_naver_identity(self, naver_id: str, user_id: str) -> None:
         now = time.time()
