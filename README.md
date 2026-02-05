@@ -29,6 +29,8 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 - DATABASE_URL (기본: sqlite:///./hub.db)
 - PUBLIC_BASE_URL (OAuth 콜백 URL)
 - HUB_API_KEY (비워두면 인증 없음)
+- HUB_SERVICE_TOKEN (내부 워커용 Bearer 토큰)
+- HUB_INTERNAL_API_KEY (내부 워커용 fallback 헤더 키)
 - ALLOW_NEW_USERS (false면 등록 제한)
 
 ## 주요 API
@@ -41,6 +43,7 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 - GET /jobs/{job_id}
 - POST /jobs/{job_id}/result
 - POST /posts
+- POST /internal/posts
 - GET /posts/latest?user_id=...
 - POST /naver/set
 - GET /naver/link?user_id=...
@@ -55,6 +58,11 @@ An example Nginx config is in `deploy/nginx/sns-maker.conf`. It serves the React
 4. nonce TTL은 5분(300초), 5회 실패 시 챌린지는 삭제되어 재발급이 필요
 
 상세 연동 가이드는 `docs/TELEGRAM_VERIFICATION.md`를 참고하세요.
+내부 게시 연동 가이드는 `docs/HUB_INTERNAL_POSTS.md`를 참고하세요.
+
+내부 워커 게시 저장 권장 경로는 `POST /internal/posts`입니다.
+- 인증: `Authorization: Bearer <HUB_SERVICE_TOKEN>` 권장
+- fallback: `X-Internal-API-Key: <HUB_INTERNAL_API_KEY>`
 
 ## 요청/응답 예시
 

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import secrets
 import re
+import logging
 from typing import Optional
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
@@ -13,6 +14,8 @@ from pydantic import BaseModel
 from app_config import (
     ALLOW_NEW_USERS,
     HUB_API_KEY,
+    HUB_INTERNAL_API_KEY,
+    HUB_SERVICE_TOKEN,
     NAVER_CLIENT_ID,
     NAVER_CLIENT_SECRET,
     NAVER_REDIRECT_URI,
@@ -28,6 +31,7 @@ app = FastAPI(title="SNS Maker Hub")
 store = HubStore()
 naver_client = NaverClient()
 server_start = time.time()
+logger = logging.getLogger("sns_maker_hub")
 TELEGRAM_VERIFY_TTL_SECONDS = 300
 TELEGRAM_VERIFY_MAX_ATTEMPTS = 5
 
@@ -139,6 +143,22 @@ def _require_dashboard_auth(request: Request, api_key: Optional[str]) -> str:
     if HUB_API_KEY:
         raise HTTPException(status_code=401, detail="unauthorized")
     raise HTTPException(status_code=401, detail="login_required")
+
+
+def _verify_internal_auth(
+    authorization: Optional[str],
+    x_internal_api_key: Optional[str],
+) -> str:
+    token = _extract_bearer(authorization)
+    if HUB_SERVICE_TOKEN and token and secrets.compare_digest(token, HUB_SERVICE_TOKEN):
+        return "service_token"
+    if (
+        HUB_INTERNAL_API_KEY
+        and x_internal_api_key
+        and secrets.compare_digest(x_internal_api_key, HUB_INTERNAL_API_KEY)
+    ):
+        return "internal_api_key"
+    raise HTTPException(status_code=401, detail="service_auth_required")
 
 
 @app.get("/health")
@@ -295,7 +315,7 @@ async def complete_telegram_verification(
 
 
 @app.get("/auth/naver/login")
-async def auth_naver_login():
+async def auth_naver_login(auth_type: Optional[str] = None):
     state = secrets.token_urlsafe(16)
     store.save_oauth_state(state, "", "login")
     client_id = (NAVER_CLIENT_ID or "").strip()
@@ -310,6 +330,7 @@ async def auth_naver_login():
         client_id=client_id,
         redirect_uri=redirect_uri,
         state=state,
+        auth_type=(auth_type or "").strip() or None,
     )
     return RedirectResponse(url)
 
@@ -386,10 +407,35 @@ async def complete_job(
 async def save_post(
     request: PostRecord,
     request_obj: Request,
-    x_api_key: Optional[str] = Header(None),
 ):
-    _require_dashboard_auth(request_obj, x_api_key)
+    user_id = _verify_token(request_obj.headers.get("Authorization"))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="login_required")
+    if request.user_id != user_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    if not store.is_user(user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
     store.create_post(secrets.token_urlsafe(12), request.user_id, request.title, request.content)
+    return {"ok": True}
+
+
+@app.post("/internal/posts")
+async def save_internal_post(
+    request: PostRecord,
+    authorization: Optional[str] = Header(default=None),
+    x_internal_api_key: Optional[str] = Header(default=None),
+    x_request_id: Optional[str] = Header(default=None),
+):
+    caller = _verify_internal_auth(authorization, x_internal_api_key)
+    if not store.is_user(request.user_id):
+        raise HTTPException(status_code=403, detail="not_registered")
+    store.create_post(secrets.token_urlsafe(12), request.user_id, request.title, request.content)
+    logger.info(
+        "internal_posts_saved caller=%s endpoint=/internal/posts user_id=%s request_id=%s",
+        caller,
+        request.user_id,
+        (x_request_id or "").strip() or "-",
+    )
     return {"ok": True}
 
 

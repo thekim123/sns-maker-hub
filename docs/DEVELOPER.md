@@ -4,6 +4,7 @@
 - FastAPI 기반 허브 서버입니다.
 - 로컬 LLM 워커(예: `sns-maker`)가 `/jobs/next`를 폴링해 작업을 처리합니다.
 - React 대시보드는 별도 레포(`sns-maker-hub-frontend`)에서 `/api/status`를 조회합니다.
+- 내부 게시 인증/분리 설계는 `docs/HUB_INTERNAL_POSTS.md`를 참고하세요.
 
 ## 로컬 실행
 ```powershell
@@ -26,13 +27,19 @@ python -m unittest discover -s tests -v
 - `DATABASE_URL`: 기본 `sqlite:///./hub.db`
 - `PUBLIC_BASE_URL`: OAuth 콜백 기준 URL
 - `HUB_API_KEY`: 비어있으면 인증 없음
+- `HUB_SERVICE_TOKEN`: 내부 워커 전용 Bearer 토큰
+- `HUB_INTERNAL_API_KEY`: 내부 워커 전용 fallback 키
 - `ALLOW_NEW_USERS`: `true`일 때 신규 등록 허용
 - `FRONTEND_BASE_URL`: 네이버 로그인 완료 후 리다이렉트할 프론트 URL
 - `JWT_SECRET`: 로그인 JWT 서명 키
 - `JWT_TTL_SECONDS`: 로그인 JWT 만료 시간 (초)
 
 ## 인증
-- `HUB_API_KEY`가 설정되어 있으면 모든 API 요청에 `X-API-KEY` 필요
+- `HUB_API_KEY`가 설정되어 있으면 관리/워커 엔드포인트는 `X-API-KEY`가 필요
+- 로그인 사용자 엔드포인트(`Authorization: Bearer <user_jwt>`)는 사용자 JWT로 인증
+- `POST /internal/posts`는 내부 서비스 인증만 허용
+  - 권장: `Authorization: Bearer <HUB_SERVICE_TOKEN>`
+  - fallback: `X-Internal-API-Key: <HUB_INTERNAL_API_KEY>`
 
 ## 네이버 로그인
 - `GET /auth/naver/login`으로 네이버 OAuth 로그인 시작
@@ -61,6 +68,7 @@ python -m unittest discover -s tests -v
 - `GET /jobs/{job_id}`: 작업 상태 조회
 - `POST /jobs/{job_id}/result`: 작업 완료 업로드
 - `POST /posts`: 게시물 저장
+- `POST /internal/posts`: 내부 워커 게시물 저장
 - `GET /posts/latest`: 사용자 최신 게시물
 - `POST /naver/set`: 네이버 앱 키 등록
 - `GET /naver/link`: 네이버 OAuth 링크 생성
@@ -83,6 +91,7 @@ python -m unittest discover -s tests -v
 2. 워커가 `/jobs/next`로 작업 가져감
 3. 처리 결과를 `/jobs/{id}/result`로 업로드
 4. 생성된 글을 `/posts`에 저장
+   - 워커 권장 경로: `/internal/posts`
 
 ## 네이버 OAuth/게시 흐름
 1. `/naver/set`으로 Client ID/Secret 등록

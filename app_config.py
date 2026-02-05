@@ -20,6 +20,8 @@ def _get_env_bool(name: str, default: bool) -> bool:
 
 DATABASE_URL = _get_env("DATABASE_URL", "sqlite:///./hub.db")
 HUB_API_KEY = _get_env("HUB_API_KEY", "")
+HUB_SERVICE_TOKEN = _get_env("HUB_SERVICE_TOKEN", "")
+HUB_INTERNAL_API_KEY = _get_env("HUB_INTERNAL_API_KEY", "")
 PUBLIC_BASE_URL = _get_env("PUBLIC_BASE_URL", "http://localhost:8000")
 NAVER_AUTHORIZE_URL = "https://nid.naver.com/oauth2.0/authorize"
 NAVER_TOKEN_URL = "https://nid.naver.com/oauth2.0/token"
