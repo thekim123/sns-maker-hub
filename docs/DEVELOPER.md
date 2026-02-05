@@ -14,6 +14,14 @@ copy .env.example .env
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
+## 테스트
+```powershell
+python -m unittest discover -s tests -v
+```
+
+- `tests/test_hub_store.py`: 저장소 레벨 검증 (nonce 만료/시도횟수/중복 telegram_id)
+- `tests/test_telegram_verification_api.py`: API 통합 검증 (challenge/complete/오류코드/프로필 반영)
+
 ## 환경변수
 - `DATABASE_URL`: 기본 `sqlite:///./hub.db`
 - `PUBLIC_BASE_URL`: OAuth 콜백 기준 URL
